@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAD + ASR Real-time</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            margin: 0; padding: 20px; min-height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .container {
+            background: white; border-radius: 20px; padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%; max-width: 800px;
+        }
+        .header {
+            text-align: center; margin-bottom: 30px;
+        }
+        .title {
+            font-size: 26px; font-weight: 700; color: #11998e;
+            margin-bottom: 5px;
+        }
+        .subtitle {
+            font-size: 14px; color: #6c757d;
+        }
+        .vad-indicator {
+            background: #f8f9fa; border-radius: 12px;
+            padding: 20px; margin-bottom: 20px;
+            text-align: center;
+        }
+        .vad-circle {
+            width: 60px; height: 60px; border-radius: 50%;
+            margin: 0 auto 10px; transition: all 0.3s ease;
+            background: #e9ecef;
+        }
+        .vad-circle.active {
+            background: #38ef7d;
+            box-shadow: 0 0 20px rgba(56,239,125,0.6);
+            animation: pulse-vad 1.5s infinite;
+        }
+        @keyframes pulse-vad {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        .vad-text {
+            font-size: 14px; color: #6c757d;
+        }
+        .vad-confidence {
+            font-size: 12px; color: #11998e;
+            font-weight: 600; margin-top: 5px;
+        }
+        .transcript-box {
+            background: #f8f9fa; border: 2px solid #e9ecef;
+            border-radius: 12px; padding: 20px;
+            min-height: 300px; max-height: 400px;
+            overflow-y: auto; margin-bottom: 20px;
+        }
+        .transcript-item {
+            background: white; border-left: 4px solid #11998e;
+            padding: 12px; margin-bottom: 10px; border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .transcript-header {
+            font-size: 11px; color: #6c757d;
+            margin-bottom: 5px; display: flex;
+            justify-content: space-between;
+        }
+        .transcript-text {
+            font-size: 16px; color: #212529;
+            font-weight: 500; line-height: 1.5;
+        }
+        .controls {
+            display: flex; gap: 10px;
+        }
+        .btn {
+            flex: 1; border: none; border-radius: 10px;
+            padding: 15px; font-size: 16px; font-weight: 600;
+            cursor: pointer; transition: all 0.3s ease;
+        }
+        .btn-start {
+            background: #11998e; color: white;
+        }
+        .btn-start:hover:not(:disabled) {
+            background: #0d7a70; transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(17,153,142,0.4);
+        }
+        .btn-stop {
+            background: #dc3545; color: white;
+        }
+        .btn-stop:hover:not(:disabled) {
+            background: #c82333; transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(220,53,69,0.4);
+        }
+        .btn:disabled {
+            background: #6c757d; cursor: not-allowed;
+            transform: none;
+        }
+        .status-bar {
+            background: #e9ecef; border-radius: 8px;
+            padding: 12px; margin-top: 20px;
+            text-align: center; font-size: 14px;
+            color: #6c757d;
+        }
+        .status-bar.recording {
+            background: #d1ecf1; color: #0c5460;
+        }
+        .error-box {
+            background: #f8d7da; border: 1px solid #f5c6cb;
+            color: #721c24; border-radius: 8px;
+            padding: 12px; margin-top: 15px; display: none;
+        }
+        .stats {
+            display: grid; grid-template-columns: repeat(5, 1fr);
+            gap: 10px; margin-top: 15px;
+        }
+        .stat-item {
+            background: white; border-radius: 6px;
+            padding: 8px; text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-label {
+            font-size: 11px; color: #6c757d;
+        }
+        .stat-value {
+            font-size: 16px; font-weight: 600;
+            color: #11998e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">🎙️ Real-time VAD + ASR</div>
+            <div class="subtitle">Voice Activity Detection + Speech Recognition</div>
+        </div>
+
+        <div class="vad-indicator">
+            <div class="vad-circle" id="vadCircle"></div>
+            <div class="vad-text" id="vadText">Waiting...</div>
+            <div class="vad-confidence" id="vadConfidence">-</div>
+        </div>
+
+        <div class="transcript-box" id="transcriptBox">
+            <div style="text-align: center; color: #6c757d; padding: 50px 0;">
+                Nhấn "Start Recording" để bắt đầu
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-label">Total Segments</div>
+                <div class="stat-value" id="totalSegments">0</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Avg Inference</div>
+                <div class="stat-value" id="avgInference">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Speech Ratio</div>
+                <div class="stat-value" id="speechRatio">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Decode Method</div>
+                <div class="stat-value" id="decodeMethod" style="font-size: 13px;">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">LM Status</div>
+                <div class="stat-value" id="lmStatus" style="font-size: 13px;">-</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-start" id="btnStart" onclick="startRecording()">
+                🎤 Start Recording
+            </button>
+            <button class="btn btn-stop" id="btnStop" onclick="stopRecording()" disabled>
+                ⏹️ Stop Recording
+            </button>
+        </div>
+
+        <div class="status-bar" id="statusBar">Ready</div>
+        <div class="error-box" id="errorBox"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        let isRecording = false;
+        let segmentCount = 0;
+        let totalInferenceTime = 0;
+        let speechFrames = 0;
+        let totalFrames = 0;
+        let lastDecodeMethod = '-';
+
+        function startRecording() {
+            if (isRecording) return;
+            
+            // Reset stats
+            segmentCount = 0;
+            totalInferenceTime = 0;
+            speechFrames = 0;
+            totalFrames = 0;
+            
+            document.getElementById('transcriptBox').innerHTML = '';
+            document.getElementById('errorBox').style.display = 'none';
+            
+            socket.emit('start_recording');
+            
+            document.getElementById('btnStart').disabled = true;
+            document.getElementById('btnStop').disabled = false;
+            document.getElementById('statusBar').textContent = '🎤 Recording...';
+            document.getElementById('statusBar').className = 'status-bar recording';
+            
+            isRecording = true;
+        }
+
+        function stopRecording() {
+            if (!isRecording) return;
+            
+            socket.emit('stop_recording');
+            
+            document.getElementById('btnStart').disabled = false;
+            document.getElementById('btnStop').disabled = true;
+            document.getElementById('statusBar').textContent = '⏹️ Stopped';
+            document.getElementById('statusBar').className = 'status-bar';
+            
+            document.getElementById('vadCircle').classList.remove('active');
+            document.getElementById('vadText').textContent = 'Stopped';
+            
+            isRecording = false;
+        }
+
+        // Socket event handlers
+        socket.on('recording_started', (data) => {
+            console.log('Recording started:', data);
+            if (data.lm_ready !== undefined) {
+                document.getElementById('lmStatus').textContent = data.lm_ready ? '✓ Ready' : '✗ N/A';
+            }
+        });
+
+        socket.on('recording_stopped', (data) => {
+            console.log('Recording stopped:', data);
+        });
+
+        socket.on('vad_status', (data) => {
+            totalFrames++;
+            if (data.is_speech) speechFrames++;
+            
+            const circle = document.getElementById('vadCircle');
+            const text = document.getElementById('vadText');
+            const conf = document.getElementById('vadConfidence');
+            
+            if (data.is_speech) {
+                circle.classList.add('active');
+                text.textContent = '🗣️ Speech Detected';
+                conf.textContent = `Confidence: ${(data.confidence * 100).toFixed(1)}%`;
+            } else {
+                circle.classList.remove('active');
+                text.textContent = '🔇 Silence';
+                conf.textContent = '-';
+            }
+            
+            // Update speech ratio
+            const ratio = totalFrames > 0 ? (speechFrames / totalFrames * 100) : 0;
+            document.getElementById('speechRatio').textContent = `${ratio.toFixed(1)}%`;
+        });
+
+        socket.on('asr_result', (data) => {
+            segmentCount++;
+            totalInferenceTime += parseFloat(data.inference_time.replace('s', ''));
+            lastDecodeMethod = data.decode_method || 'Unknown';
+            
+            // Add transcript item
+            const box = document.getElementById('transcriptBox');
+            const item = document.createElement('div');
+            item.className = 'transcript-item';
+            item.innerHTML = `
+                <div class="transcript-header">
+                    <span>🕒 ${data.timestamp}</span>
+                    <span>⏱️ ${data.duration} | Inference: ${data.inference_time} | ${data.decode_method}</span>
+                </div>
+                <div class="transcript-text">${data.text}</div>
+            `;
+            box.appendChild(item);
+            box.scrollTop = box.scrollHeight;
+            
+            // Update stats
+            document.getElementById('totalSegments').textContent = segmentCount;
+            const avgInf = totalInferenceTime / segmentCount;
+            document.getElementById('avgInference').textContent = `${avgInf.toFixed(3)}s`;
+            document.getElementById('decodeMethod').textContent = lastDecodeMethod;
+        });
+
+        socket.on('error', (data) => {
+            const errorBox = document.getElementById('errorBox');
+            errorBox.textContent = '❌ ' + data.message;
+            errorBox.style.display = 'block';
+            
+            if (isRecording) {
+                stopRecording();
+            }
+        });
+
+        // Check status on load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch('/status');
+                const status = await response.json();
+                
+                if (!status.vad_loaded || !status.asr_loaded) {
+                    document.getElementById('statusBar').textContent = 
+                        '⚠️ Model chưa được tải';
+                    document.getElementById('btnStart').disabled = true;
+                }
+            } catch (error) {
+                console.error('Cannot check status:', error);
+                document.getElementById('statusBar').textContent = 
+                    '⚠️ Không thể kết nối server';
+                document.getElementById('btnStart').disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>

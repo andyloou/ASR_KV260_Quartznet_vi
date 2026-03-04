@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống Nhận dạng Giọng nói Tự động</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            width: 100vw;
+            overflow: auto;
+            color: #2c3e50;
+            padding: 12px;
+            font-size: 18px;
+            line-height: 1.6;
+        }
+
+        .container {
+            background: white;
+            max-width: 1200px;
+            margin: 0 auto;
+            min-height: calc(100vh - 24px);
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 15px 25px;
+            color: white;
+            display: grid;
+            grid-template-columns: minmax(140px, 280px) 1fr minmax(140px, 280px);
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+            border-bottom: 3px solid #c41e3a;
+        }
+
+        .branding {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            justify-self: start;
+            max-width: 280px;
+            overflow: hidden;
+        }
+
+        .logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            border-radius: 0;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            background: white;
+            padding: 8px;
+            border-radius: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+
+        .institution-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .institution-name {
+            font-size: 13px;
+            font-weight: 600;
+            opacity: 0.95;
+            letter-spacing: 0.3px;
+        }
+
+        .department-name {
+            font-size: 12px;
+            opacity: 0.85;
+        }
+
+        .system-title {
+            text-align: center;
+            font-size: 19px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            padding: 0 8px;
+            justify-self: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .header-right {
+            justify-self: end;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 140px;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 18px;
+            gap: 14px;
+            overflow: hidden;
+        }
+
+        .vad-section {
+            background: #f8f9fc;
+            border: 1px solid #e1e8ed;
+            border-radius: 6px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-shrink: 0;
+        }
+
+        .vad-indicator {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #cbd5e0;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .vad-indicator.active {
+            background: #48bb78;
+            box-shadow: 0 0 0 3px rgba(72,187,120,0.2);
+        }
+
+        .vad-indicator::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: white;
+        }
+
+        .vad-info {
+            flex: 1;
+        }
+
+        .vad-status {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 3px;
+        }
+
+        .vad-confidence {
+            font-size: 13px;
+            color: #718096;
+        }
+
+        .transcript-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #e1e8ed;
+            border-radius: 6px;
+            background: white;
+            overflow: hidden;
+        }
+
+        .transcript-header {
+            background: #f8f9fc;
+            padding: 14px 18px;
+            border-bottom: 1px solid #e1e8ed;
+            font-size: 14px;
+            font-weight: 600;
+            color: #4a5568;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .transcript-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .transcript-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .transcript-content::-webkit-scrollbar-thumb {
+            background: #cbd5e0;
+            border-radius: 3px;
+        }
+
+        .transcript-item {
+            background: #f7fafc;
+            border-left: 3px solid #4299e1;
+            padding: 14px;
+            margin-bottom: 12px;
+            border-radius: 4px;
+        }
+
+        .transcript-meta {
+            font-size: 12px;
+            color: #718096;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .transcript-text {
+            font-size: 16px;
+            color: #2d3748;
+            line-height: 1.5;
+            font-weight: 500;
+        }
+
+        .stats-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            flex-shrink: 0;
+            align-items: stretch;
+        }
+
+        .stat-card {
+            background: white;
+            border: 1px solid #e1e8ed;
+            border-radius: 6px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #718096;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .controls-section {
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+            align-items: center;
+        }
+
+        @media (max-width: 720px) {
+            .header { padding: 12px; grid-template-columns: auto 1fr auto; }
+            .system-title { font-size: 15px; }
+            .branding { max-width: 140px; }
+            .header-right { min-width: 0; }
+            .stats-section { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+            .controls-section { flex-direction: column; }
+        }
+
+        .btn {
+            flex: 1;
+            padding: 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: #4299e1;
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #3182ce;
+        }
+
+        .btn-danger {
+            background: #e53e3e;
+            color: white;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #c53030;
+        }
+
+        .btn:disabled {
+            background: #cbd5e0;
+            color: #a0aec0;
+            cursor: not-allowed;
+        }
+
+        .status-bar {
+            background: #edf2f7;
+            padding: 12px 18px;
+            text-align: center;
+            font-size: 13px;
+            color: #4a5568;
+            border-top: 1px solid #e1e8ed;
+            flex-shrink: 0;
+        }
+
+        .status-bar.recording {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+
+        .status-bar.error {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 6px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }
+
+        .badge-success {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .badge-info {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="branding">
+                <div class="logo" title="Logo ITI VNU">
+                    <img src="logo_ITI.jpg" alt="Logo ITI VNU" />
+                </div>
+                <div class="institution-info">
+                    <div class="institution-name">ĐẠI HỌC QUỐC GIA HÀ NỘI</div>
+                    <div class="department-name">Viện Công nghệ Thông tin</div>
+                </div>
+            </div>
+
+            <div class="system-title">
+                HỆ THỐNG NHẬN DẠNG GIỌNG NÓI TIẾNG VIỆT
+            </div>
+            <div class="header-right" aria-hidden="true"></div>
+        </div>
+
+        <div class="main-content">
+            <div class="vad-section">
+                <div class="vad-indicator" id="vadIndicator"></div>
+                <div class="vad-info">
+                    <div class="vad-status" id="vadStatus">Đang chờ...</div>
+                    <div class="vad-confidence" id="vadConfidence">Tỉ lệ có tiếng nói: --</div>
+                </div>
+                <div id="vadBadge"></div>
+            </div>
+
+            <div class="transcript-section">
+                <div class="transcript-header">
+                    <span>KẾT QUẢ NHẬN DẠNG</span>
+                    <span id="transcriptCount">0 đoạn</span>
+                </div>
+                <div class="transcript-content" id="transcriptContent">
+                    <div style="text-align: center; color: #a0aec0; padding: 50px 0;">
+                        Nhấn "Bắt đầu ghi âm" để bắt đầu
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-section">
+                <div class="stat-card">
+                    <div class="stat-label">Số câu</div>
+                    <div class="stat-value" id="statSegments">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Thời gian xử lý TB</div>
+                    <div class="stat-value" id="statAvgTime">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Tỷ lệ giọng nói</div>
+                    <div class="stat-value" id="statSpeechRatio">--</div>
+                </div>
+            </div>
+
+            <div class="controls-section">
+                <button class="btn btn-primary" id="btnStart" onclick="startRecording()">
+                    <span>▶</span>
+                    <span>Bắt đầu ghi âm</span>
+                </button>
+                <button class="btn btn-danger" id="btnStop" onclick="stopRecording()" disabled>
+                    <span>⏹</span>
+                    <span>Dừng ghi âm</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="status-bar" id="statusBar">Sẵn sàng</div>
+    </div>
+
+    <script>
+        const socket = io();
+        let isRecording = false;
+        let segmentCount = 0;
+        let totalInferenceTime = 0;
+        let speechFrames = 0;
+        let totalFrames = 0;
+
+        function startRecording() {
+            if (isRecording) return;
+
+            segmentCount = 0;
+            totalInferenceTime = 0;
+            speechFrames = 0;
+            totalFrames = 0;
+
+            document.getElementById('transcriptContent').innerHTML = '';
+            document.getElementById('statusBar').className = 'status-bar';
+
+            socket.emit('start_recording');
+
+            document.getElementById('btnStart').disabled = true;
+            document.getElementById('btnStop').disabled = false;
+            document.getElementById('statusBar').textContent = 'Đang ghi âm...';
+            document.getElementById('statusBar').className = 'status-bar recording';
+
+            isRecording = true;
+        }
+
+        function stopRecording() {
+            if (!isRecording) return;
+
+            socket.emit('stop_recording');
+
+            document.getElementById('btnStart').disabled = false;
+            document.getElementById('btnStop').disabled = true;
+            document.getElementById('statusBar').textContent = 'Đã dừng ghi âm';
+            document.getElementById('statusBar').className = 'status-bar';
+
+            document.getElementById('vadIndicator').classList.remove('active');
+            document.getElementById('vadStatus').textContent = 'Đã dừng';
+            document.getElementById('vadBadge').innerHTML = '';
+
+            isRecording = false;
+        }
+
+        socket.on('recording_started', (data) => {
+            console.log('Recording started:', data);
+        });
+
+        socket.on('recording_stopped', (data) => {
+            console.log('Recording stopped:', data);
+        });
+
+        socket.on('vad_status', (data) => {
+            totalFrames++;
+            if (data.is_speech) speechFrames++;
+
+            const indicator = document.getElementById('vadIndicator');
+            const status = document.getElementById('vadStatus');
+            const conf = document.getElementById('vadConfidence');
+            const badge = document.getElementById('vadBadge');
+
+            if (data.is_speech) {
+                indicator.classList.add('active');
+                status.textContent = 'Đang phát hiện giọng nói';
+                conf.textContent = `Độ tin cậy: ${(data.confidence * 100).toFixed(1)}%`;
+                badge.innerHTML = '<span class="badge badge-success">SPEAKING</span>';
+            } else {
+                indicator.classList.remove('active');
+                status.textContent = 'Im lặng';
+                conf.textContent = 'Độ tin cậy: --';
+                badge.innerHTML = '<span class="badge badge-info">SILENCE</span>';
+            }
+
+            const ratio = totalFrames > 0 ? (speechFrames / totalFrames * 100) : 0;
+            document.getElementById('statSpeechRatio').textContent = `${ratio.toFixed(0)}%`;
+        });
+
+        socket.on('asr_result', (data) => {
+            segmentCount++;
+            totalInferenceTime += parseFloat(data.inference_time.replace('s', ''));
+
+            const content = document.getElementById('transcriptContent');
+            const item = document.createElement('div');
+            item.className = 'transcript-item';
+
+            let methodDisplay = data.decode_method || 'Unknown';
+            if (methodDisplay.startsWith('LM_beam')) {
+                methodDisplay = 'LM Beam Search';
+            } else if (methodDisplay === 'CTC_greedy') {
+                methodDisplay = 'CTC Greedy';
+            } else if (methodDisplay === 'CTC_fallback') {
+                methodDisplay = 'CTC Fallback';
+            }
+
+            item.innerHTML = `
+                <div class="transcript-meta">
+                    <span>⏱ ${data.timestamp} ~ Độ dài: ${data.duration}</span>
+                    <span>Xử lý: ${data.inference_time} ~ ${methodDisplay}</span>
+                </div>
+                <div class="transcript-text">${data.text}</div>
+            `;
+            content.appendChild(item);
+            content.scrollTop = content.scrollHeight;
+
+            document.getElementById('statSegments').textContent = segmentCount;
+            document.getElementById('transcriptCount').textContent = `${segmentCount} đoạn`;
+            const avgInf = totalInferenceTime / segmentCount;
+            document.getElementById('statAvgTime').textContent = `${avgInf.toFixed(2)}s`;
+        });
+
+        socket.on('error', (data) => {
+            document.getElementById('statusBar').textContent = '⚠ Lỗi: ' + data.message;
+            document.getElementById('statusBar').className = 'status-bar error';
+
+            if (isRecording) {
+                stopRecording();
+            }
+        });
+
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch('/status');
+                const status = await response.json();
+
+                if (!status.vad_loaded || !status.asr_loaded) {
+                    document.getElementById('statusBar').textContent = 'Mô hình chưa được tải';
+                    document.getElementById('statusBar').className = 'status-bar error';
+                    document.getElementById('btnStart').disabled = true;
+                } else {
+                    document.getElementById('statusBar').textContent = 'Sẵn sàng - Hệ thống đã tải đầy đủ';
+                }
+            } catch (error) {
+                console.error('Cannot check status:', error);
+                document.getElementById('statusBar').textContent = 'Không thể kết nối đến server';
+                document.getElementById('statusBar').className = 'status-bar error';
+                document.getElementById('btnStart').disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>
